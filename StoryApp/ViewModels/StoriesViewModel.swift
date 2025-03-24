@@ -1,23 +1,34 @@
-import Foundation
+import SwiftUI
+import Combine
 
 final class StoriesViewModel: ObservableObject {
     @Published var stories: [Story] = []
-    private var allPages: [[Story]] = []
-    private var currentPageIndex = 0
     private let repository: StoriesRepository
+    private var cancellables = Set<AnyCancellable>()
+    private var allPages: [[Story]] = []
+    private(set) var storyViewModels: [StoryViewModel] = []
+    private var viewModelsCache: [Int: StoryViewModel] = [:]
+    private var currentPageIndex = 0
 
     init(repository: StoriesRepository) {
         self.repository = repository
         loadStoriesFromJSON()
         loadSavedStoryStates()
     }
+}
 
+// MARK: - Internal API
+
+extension StoriesViewModel {
     /// Last story identifier.
     var lastId: Int? {
         stories.last?.id
     }
 
-    /// Loads the next page.
+    func index(for storyId: Int) -> Int? {
+        stories.firstIndex(where: { $0.id == storyId })
+    }
+
     func loadNextPage() {
         guard currentPageIndex < allPages.count else {
             CustomLogger.warning("⚠️ No more pages to load!")
@@ -28,10 +39,7 @@ final class StoriesViewModel: ObservableObject {
         loadSavedStoryStates()
         CustomLogger.debug("📌 Loaded page \(currentPageIndex + 1), total stories: \(stories.count)")
         currentPageIndex += 1
-    }
-
-    func index(for storyId: Int) -> Int? {
-        stories.firstIndex(where: { $0.id == storyId })
+        updateStoryViewModels()
     }
 }
 
@@ -70,6 +78,31 @@ extension StoriesViewModel {
             if let state = savedStates[stories[index].id] {
                 stories[index].seen = state.seen
                 stories[index].liked = state.liked
+            }
+        }
+    }
+
+    func updateStoryViewModels() {
+        let storiesPublisher = $stories.eraseToAnyPublisher()
+
+        storyViewModels = stories.map { story in
+            if let existingVM = viewModelsCache[story.id] {
+                return existingVM
+            } else {
+                let vm = StoryViewModel(
+                    storyId: story.id,
+                    storiesPublisher: storiesPublisher,
+                    repository: repository
+                )
+                vm.publisher
+                    .sink { [weak self] updatedStory in
+                        if let index = self?.stories.firstIndex(where: { $0.id == updatedStory.id }) {
+                            self?.stories[index] = updatedStory
+                        }
+                    }
+                    .store(in: &cancellables)
+                viewModelsCache[story.id] = vm
+                return vm
             }
         }
     }

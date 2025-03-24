@@ -29,11 +29,7 @@ struct StoryView: View {
                     Spacer()
 
                     Button(action: {
-                        do {
-                            try viewModel.toggleLike()
-                        } catch {
-                            CustomLogger.error("Error while liking story: \(error)")
-                        }
+                        viewModel.toggleLike()
                     }) {
                         Image(systemName: viewModel.isLiked ? "heart.fill" : "heart")
                             .foregroundColor(viewModel.isLiked ? .red : .white)
